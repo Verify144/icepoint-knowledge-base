@@ -1,0 +1,153 @@
+=== ETERNAL SUNSET / 落日永恒 ===
+Source: Verify144/eternal-sunset (90 files, 11147 KB, private)
+Go module: github.com/Verify144/eternal-sunset
+Status: ACTIVE (not scaffold — complete project with source code)
+
+=== OVERVIEW ===
+This is a complete, active Go project — NOT a scaffold. It contains:
+- 90 files including source code, tests, compiled binaries (whykill.exe 20MB), and documentation
+- Full protocol implementation (protocol/ package with 18 files)
+- Bridge layer for block/chunk operations
+- Load plan, plan, merge, emit, readback, structload, verify modules
+- Calibration tools (cmd/calib/) with research findings
+- Block ID mapping (blockid/ with 1.8MB blockid_table.tsv)
+- Block state handling (blockstate/)
+- Internal corpus for testing
+
+=== MODULE STRUCTURE ===
+
+Top-level packages:
+- blockid/ - Block ID mapping (hash.go, table.go, blockid_table.tsv 1.8MB)
+- blockstate/ - Block state handling
+- bridge/ - Bridge layer (bridge.go, chunks.go)
+- emit/ - Output/emission module
+- loadplan/ - Load plan management
+- merge/ - Merge module
+- plan/ - Plan module (plan.go, nbt.go)
+- protocol/ - Protocol implementation (18 files)
+- readback/ - Readback/verification
+- structload/ - Structure loading
+- verify/ - Verification module
+- internal/corpus/ - Test corpus
+
+Command-line tools (cmd/):
+- calib/ - Calibration tool (FINDINGS.md 79KB, G79-HANDSHAKE.md 15KB, g79-pending.patch 7KB)
+- capinspect/ - Capability inspection
+- chunkfmt/ - Chunk format tool
+- libscan/ - Library scanner
+- readpath/ - Path reader
+- whykill/ - Whykill tool (whykill.exe 20MB binary)
+
+=== KEY FILES ANALYZED ===
+
+1. cmd/calib/FINDINGS.md (45315 bytes):
+   - Research findings document
+   - Contains detailed protocol analysis
+   - G79 handshake research
+   - Block mapping discoveries
+
+2. cmd/calib/G79-HANDSHAKE.md (8793 bytes):
+   - G79 handshake protocol documentation
+   - Connection establishment flow
+   - Authentication details
+
+3. cmd/calib/g79-pending.patch (7375 bytes):
+   - Pending G79 patch
+   - Protocol fixes/improvements
+
+4. protocol/ids.go (747 bytes):
+   - Packet ID definitions
+   - Protocol version constants
+
+5. protocol/subchunk_network.go (8487 bytes):
+   - Subchunk network protocol implementation
+   - Chunk data serialization
+   - Network-level subchunk handling
+
+6. verify/verify.go (5189 bytes):
+   - Verification logic
+   - Data integrity checks
+   - Block state verification
+
+7. bridge/bridge.go (6665 bytes):
+   - Bridge layer between formats
+   - Chunk bridging logic
+   - Data conversion
+
+8. loadplan/loadplan.go (6567 bytes):
+   - Load plan management
+   - Chunk loading orchestration
+   - Plan execution
+
+9. plan/plan.go (5257 bytes):
+   - Building plan structure
+   - Block placement planning
+   - NBT handling (plan/nbt.go)
+
+10. blockid/table.go (2992 bytes):
+    - Block ID mapping table
+    - Hash-based block identification
+    - State ID lookup
+
+11. blockstate/blockstate.go (1601 bytes):
+    - Block state representation
+    - State transitions
+    - Property handling
+
+12. emit/emit.go (3348 bytes):
+    - Output emission
+    - Data serialization
+    - Format conversion
+
+13. readback/readback.go (1674 bytes):
+    - Readback/verification
+    - Data integrity checks
+    - State comparison
+
+14. structload/structload.go (3283 bytes):
+    - Structure loading
+    - Block structure parsing
+    - Format conversion
+
+15. merge/merge.go (4239 bytes):
+    - Data merging
+    - Chunk merging logic
+    - Block state combination
+
+=== PROTOCOL IMPLEMENTATION ===
+protocol/ package (18 files):
+- codec.go (2641 bytes) - Packet codec
+- command_block_update.go (2354 bytes) - Command block update
+- command_output.go (2595 bytes) - Command output
+- command_request.go (3741 bytes) - Command request
+- ids.go (983 bytes) - Packet IDs
+- inflate.go (985 bytes) - Inflation
+- levelchunk.go (4025 bytes) - Level chunk
+- limits.go (2609 bytes) - Limits
+- nbt.go (6386 bytes) - NBT handling
+- request_permissions.go (2316 bytes) - Request permissions
+- start_game.go (6288 bytes) - Start game
+- subchunk.go (8505 bytes) - Subchunk
+- subchunk_network.go (8487 bytes) - Subchunk network
+- text.go (1399 bytes) - Text
+- update_abilities.go (3321 bytes) - Update abilities
+
+=== RELATION TO ICEPOINT ECOSYSTEM ===
+This is the TOP-LEVEL APPLICATION that consumes:
+- icepointg79: network/auth layer
+- glacier: command delivery layer  
+- IceStructure: format parsing layer
+- glacier-winter: NBT handling layer
+- icepoint-minecraft-kernel: update layer
+- (implied) verify-new: authentication/account layer
+
+It represents the completed product that ties all ecosystem modules together.
+
+=== STATUS ===
+- Active development (90 files, 11147 KB)
+- Has compiled binaries (whykill.exe 20MB)
+- Has research documentation (FINDINGS.md, G79-HANDSHAKE.md)
+- Has test corpus (internal/corpus/)
+- Has block ID mapping (blockid_table.tsv 1.8MB)
+- Complete protocol implementation (18 protocol files)
+- Bridge, load plan, plan, merge, emit, readback, structload, verify modules all present
