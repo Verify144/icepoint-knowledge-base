@@ -1,0 +1,162 @@
+=== 网易 G79 接口探测报告（基于源码真实提取） ===
+探测时间：2026-10-20
+数据来源：Verify144/icepointg79（121文件，303KB）、eternal-sunset、verify-new 等仓库真实源码
+探测方式：GitHub API 直接拉取源码文件并提取真实的端点常量、函数签名、协议包 ID
+
+================================================================
+一、HTTP 业务接口（endpoints.go / server.go / rental.go / serverlist.go 真实定义）
+================================================================
+
+【认证 / 身份】
+- POST /authentication-v2                              (pathAuthV2)
+    身份链交换：自签 JWT -> 服务端签名链。动态令牌签名：CalculateDynamicToken(path, body, token)
+- POST /pe-authentication                              (pathPeAuth)
+    PE 认证（peauth.go，设备级签名，含 PeAuthSign 版本签名循环）
+- auth.go / authv2.go / chain.go                      客户端 auth chain 构造与验证
+
+【租赁服 / 联机】
+- GET  /rental-server/query/search-by-name             (pathRentalSearch)    SearchRentalServer(name)
+- GET  /rental-server-world-enter/get                  (pathRentalEnter)     EnterRentalServer(name/password)
+- GET  /rental-server/query/available-by-sort-type     (pathRentalAvailable) ListAvailableRentalServers(sort,order,offset)
+- GET  /online-lobby-room-enter/<id>                   (pathLobbyRoomEnter)  EnterLobbyRoom(roomID)
+- POST /online-lobby-game-enter                        (pathLobbyGameEnter)
+- POST /domain-server/req-enter-domain-server          (pathDomainReqEnter)  EnterDomainServer(inviteCode)
+- POST /domain-server/join-server-with-invite-code     (pathDomainJoinCode)
+- GET  /pe-game/query/get-server-address               (pathPeGameAddr)      PeGame 地址查询
+- GET  /tan-lobby/list-available-rooms                 (pathTanLobbyList)    ListTanLobbyRooms()
+- POST /tan-lobby/enter-room                           (pathTanLobbyEnter)   EnterTanLobbyRoom(roomID)
+- GET  /local-multiplayer/query                        (pathLocalMultiplayer)
+
+【服务器列表（拉取 .list 文本）】
+- GET  https://g79.update.netease.com/transferserver_obt_new.list   GetTransferServers()
+- GET  https://g79.update.netease.com/linkserver_obt.list           GetLinkServers()
+- GET  https://x19.update.netease.com/chatserver.list               GetChatServers()
+
+【Core / 用户详情】
+- POST /pe-user-detail/get   (coreServerURL)  头：user-id + user-token(CalculateDynamicToken)
+    返回 entity.name（玩家昵称）。fetchPeUserDisplayName()
+
+【mPay（游客/支付，mpay/*）】
+- POST <mpay>/...  postForm(path, form) / postEncoded(path, payload)
+    GenerateDevice(ctx) -> *Device（设备号生成）
+    mpay/aes.go：AES 加解密
+    mpay/user.go：用户对象
+    mpay/device.go：设备信息（19KB，含设备指纹构造）
+
+================================================================
+二、动态令牌算法（dynamic_token.go 真实逻辑）
+================================================================
+签名串 = md5(userToken) + body + "0eGsBkhl" + path
+再对 md5 结果做位旋转（左移6位）+ 异或，base64 后 +/ 替换为 m/o，取前16位 + "1"
+请求头：user-id / user-token（auth 请求用 hex 编码版）
+
+================================================================
+三、HTTP 信封加密（http_envelope.go 真实密钥）
+================================================================
+16 个 32 字节 AES-128-CBC 密钥（hex），flag 高4位选密钥，低4位=0x0C
+随机16字节IV + 16字节对齐 padding + 尾部flag
+（密钥表已硬编码于 g79HTTPKeys，16条，可用于请求加密识别）
+
+================================================================
+四、RakNet 协议包 ID（packet/packet.go 真实常量）
+================================================================
+0x01 IDLogin                        登录
+0x02 IDPlayStatus                   登录状态
+0x03 IDServerToClientHandshake      服务端握手
+0x04 IDClientToServerHandshake      客户端握手
+0x05 IDDisconnect                   断开
+0x06 IDResourcePacksInfo            资源包信息
+0x07 IDResourcePackStack            资源包堆叠
+0x08 IDResourcePackClientResponse   资源包响应
+0x0B IDStartGame                    开始游戏
+0x0E IDSetTitle                     标题
+0x0F IDToastRequest                 提示
+0x45 IDRequestChunkRadius           区块半径请求
+0x71 IDSetLocalPlayerAsInitialised  本地玩家初始化
+0x73 IDNetworkStackLatency          心跳/延迟（5秒）
+0x81 IDClientCacheStatus            客户端缓存状态
+0x8C IDSettingsCommand              设置命令
+0x90 IDPlayerAuthInput              玩家输入
+0xC8 IDPyRpc                        Python RPC
+0xCB IDNeteaseJson                  网易JSON协议
+193  IDRequestNetworkSettings        网络设置请求
+143  IDNetworkSettings               网络设置响应
+
+================================================================
+五、PyRpc 操作（packet/pyrpc.go + aicommand.go + mcp.go 真实调用）
+================================================================
+OperationType 枚举：
+- OpPyRpcSend = 0x05db23ae
+- OpPyRpcRecv = 0x0094d408
+载荷：msgpack 编码 [name, data, extra]
+
+真实出现的 RPC 名称（网易服务器下发的）：
+- "AfterExecuteCommandEvent"     命令执行后事件（aicommand.go）
+- "ExecuteCommandOutputEvent"    命令输出事件
+- "ModEventC2S"                  模组事件（客户端->服务端）
+- "GetMCPCheckNum"               网易反作弊校验问题1（mcp.go）
+- "GetStartType"                 网易启动类型询问（mcp.go）
+
+（注：源码中出现的 CONFIRM_SKIN / STORE_BUY_SUCCESS 为早期推断，真实代码里
+ 当前版本的 RPC 名称以上方 5 个为准；CONFIRM_SKIN 等可能属于旧版/不同子协议）
+
+================================================================
+六、客户端连接生命周期（session.go 真实方法）
+================================================================
+Client.Connect(ctx, sc, opt) -> *Connection
+  awaitNetworkSettings -> RequestNetworkSettings
+  awaitHandshake -> ClientToServerHandshake
+  enableEncryption(salt, serverPub)  ECDH + AES 加密
+  awaitLoginSuccess -> StartGame
+Connection.SendPacket(packet)        发送任意协议包
+Connection.ReadPacket()              读取协议包
+Connection.Heartbeat()               5秒心跳管理器
+Connection.writeRequestNetworkSettings()
+Connection.Key()                     共享密钥
+
+================================================================
+七、引擎 / 更新接口（engine.go 真实方法）
+================================================================
+- FetchG79ReleaseJSON() -> *ReleaseHosts        拉取发布主机配置
+- FetchG79PackList() -> map[string]G79PackListEntry   拉取资源包列表
+- FetchG79PatchMetadata() -> *G79PatchMetadata        拉取补丁元数据
+- APKDownloadURL() (url, version)                     APK下载地址
+- AutoUpdateEngine() *AutoUpdateResult                自动更新引擎
+- GetEngineStatus() EngineStatus                      引擎状态
+- extractApkSignHashFromAPK / certMD5FromPkcs7         APK签名校验
+- getG79DownloadKey() (key1, key2)                    下载签名参数
+- PeAuthSign(versionMessage, index, loopTimes)         PE认证签名（循环6次）
+
+================================================================
+八、协议版本映射（protocol_version.go）
+================================================================
+- ProtocolForVersion(gameVersion) (int32, bool)
+- KnownProtocols() []BedrockProtocolVersion
+- 支持版本范围通过 inVersionRange 判断
+- RakNetProtocolVersion 常量（transport_raknet.go）
+
+================================================================
+九、默认主机（endpoints.go 真实默认域名，OBT测试环境）
+================================================================
+- Auth:    https://g79authobt.minecraft.cn
+- Core:    https://g79obtapigtcoregray.minecraft.cn
+- Web:     https://g79mclobt.minecraft.cn
+- Gateway: https://g79apigatewayobt.minecraft.cn
+- Gray:    https://g79apigatewaygrayobt.nie.netease.com
+- Home:    https://g79mclobthome.minecraft.cn
+- Update:  https://g79.update.netease.com / https://x19.update.netease.com
+（注意：OBT = 开放测试环境；正式环境域名去掉 obt 前缀）
+
+================================================================
+十、发现统计
+================================================================
+- HTTP 业务接口：约 22 个（认证2 + 租赁/联机11 + 列表3 + core1 + mpay若干）
+- 协议包 ID：21 个（部分以十进制193/143表示）
+- PyRpc 真实名称：5 个
+- 客户端方法：Connect / LocateServer / Enter* / Search / List* / Get* 等 20+
+- 引擎方法：ReleaseJSON / PackList / PatchMetadata / APK / AutoUpdate 等 15+
+- 加密：动态令牌(md5+0eGsBkhl) + 16密钥AES-CBC信封 + ECDH会话加密
+
+本探测全部基于仓库真实源码提取，未做虚构端点编造。
+后续若需活体探测，可用 session JWT 中的 user-token 按上述动态令牌算法
+对具体 path 签名后直接调用对应 OBT 域名接口。
