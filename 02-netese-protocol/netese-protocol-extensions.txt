@@ -1,0 +1,80 @@
+=== NETEASE PROTOCOL EXTENSIONS ===
+From: icepointg79/packet/ (37 packets), ProtocolExtension.java (37 blobs)
+Also from: Verify144/IceStructure (format identification)
+
+=== PACKET TYPES (from ProtocolExtension.java) ===
+
+CONFIRM_SKIN (skin verification)
+NET_EASE_JSON (NetEase JSON protocol)
+PY_RPC (Python RPC protocol) - magic 98247598 (0x05DB1EEE)
+STORE_BUY_SUCCESS (store purchase success)
+
+=== PY RPC PACKET STRUCTURE ===
+Type PyRpcPacket:
+- byte[] data: raw payload data
+- long msgId: message identifier (magic 98247598 / 0x05DB1EEE)
+- OperationType: uint32 operation code
+- Payload: encoded data
+
+=== NETEASE ENCRYPTION UTILS ===
+From: NetEaseEncryptionUtils (Java source, 37 blobs)
+
+Case 1 (offline, signed=false):
+- Offline mode: No server signature verification
+- Used for local testing or air-gapped environments
+
+Case 3 (3-layer, i==1 == NETEASE_PUBLIC_KEY):
+- Three-layer encryption chain
+- Layer 1: Client private key + Server public key (ECDH)
+- Layer 2: Derived AES-256-CTR key + Salt
+- Layer 3: Packet-level encryption with 8-byte integrity
+
+Default (other cases):
+- Throws exception: Invalid encryption chain
+
+=== PACKET ID MAPPING (from verify-new / protocol) ===
+
+0xF2: InventoryTransaction (inventory interaction)
+0xF3: InventoryContent (inventory content)
+0xF5: MovePlayer (player movement)
+0xF8: ContainerOpen (open container)
+0xF9: ContainerClose (close container)
+
+=== BDK FORMAT (PhoenixBuilder BDump v3) ===
+From: pb_*.json + PhoenixBuilder documentation
+
+Header: BD@ + brotli(q6) + BDX\0\0
+Commands: block placement commands
+Structure: uint16 palette cap (65536 max)
+Encoding: Two-pass palette + brush X->Y->Z deltas
+
+=== VERIFY BDX NEW ===
+From: VerifyBDXNew source analysis
+- RSA-PKCS1v15 / SHA-256 double certificate chain
+- VerifyStreamBDX: 2048-byte chunks + 0x5A terminator
+
+=== STREAM BDX ===
+From: VerifyStreamBDX
+- Chunk-based streaming: 2048 bytes per chunk
+- Terminator: 0x5A (end of stream marker)
+
+=== LITMATIC FORMATS ===
+From: IceStructure formats + SchematicFileUtils
+
+Supported: Sponge / Vanilla / Structurize / Schematica / IndevWorld
+Note: No automatic identification; must specify format
+
+=== NETEASE AUTH CHAIN ===
+From: NetEaseEnrollmentUtils
+- Three-layer validation (case 1 = offline, case 3 = full server verification)
+- Public key: NETEASE_PUBLIC_KEY (fixed for server verification)
+
+=== KEY TECHNICAL DETAILS ===
+- Protocol Version: 818 (Bedrock 1.21.90) confirmed in icepointg79/protocol_version.go
+- RakNet Protocol: 8 (NetEase fixed, upstream goes to 11)
+- Heartbeat Interval: 5 seconds (not default 10 or 30)
+- Dynamic Token: md5 mix with fixed magic string
+- Batch Frame: Multiple packets + zlib compression
+- Encryption: P-384 ECDH -> SHA256(salt||shared) -> AES-256-CTR
+- Integrity: 8-byte verification suffix on every packet
+- Packet IDs: 0xF2, 0xF3, 0xF5, 0xF8, 0xF9 (inventory/move/container operations)
