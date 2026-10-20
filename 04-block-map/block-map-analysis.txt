@@ -1,0 +1,105 @@
+=== BLOCKMAP MAPPING LIBRARY ===
+Source: Verify144/BlockMap (15 files, 262KB, private)
+Git: github.com/Verify144/BlockMap
+Go module: github.com/Verify144/BlockMap (go 1.22)
+License: MIT
+
+=== OVERVIEW ===
+Bidirectional block mapping between Minecraft Java and Bedrock editions.
+Supports Bedrock 1.26 format with NetEase custom extensions.
+
+=== DATA STRUCTURES ===
+
+BedrockBlock struct:
+- Name: string (block short name, e.g., "stone")
+- DisplayName: string (human-readable, e.g., "Hard Lime Stained Glass")
+- ID: int (Bedrock block ID)
+- MinStateID: int (minimum state ID for this block)
+- MaxStateID: int (maximum state ID for this block)
+- DefaultState: int (default state ID)
+- JavaName: string (Java namespace, e.g., "minecraft:lime_stained_glass")
+- Hardness: float (block hardness)
+- Resistance: float (blast resistance)
+- Transparent: bool (light passes through)
+- Solid: bool (collision enabled)
+- Diggable: bool (can be mined)
+- EmitLight: int (light emission level)
+- FilterLight: int (light filtering level)
+- StackSize: int (max stack size)
+
+=== BLOCK STATISTICS ===
+- Bedrock block definitions (full attributes): 1321 blocks
+- Bedrock state ID -> Java name: 15845 entries (0% gaps)
+- Java name -> Bedrock state ID: 1229 entries
+- Bedrock block name -> definition: 1321 entries
+- Classic Java 1.12 Runtime ID: 225 entries
+- NetEase unique blocks: 33 entries (some_ne:* namespace)
+
+=== CORE FILES ===
+
+block.go:
+- BedrockBlock struct definition
+- AllBedrockBlocks() -> []BedrockBlock (returns all 1321 blocks)
+
+registry.go:
+- Registry for block lookups
+
+lookup.go / name_lookup.go:
+- GlobalLookup() lookup system
+- Lookup methods: ByJava(), ByBedrock(), ByBedrockStateID(), ByRuntimeID(), ByNemc(), OrByName()
+
+state.go:
+- StateID mapping: Java name <-> Bedrock state ID
+- Bidirectional state ID system
+
+util.go:
+- Utility functions for block mapping
+
+bedrock_blocks.go:
+- Full bedrock block definitions (1321 blocks)
+- JSON embed or hardcoded data
+
+java_bedrock.go:
+- Java <-> Bedrock short name conversion
+
+java_to_bedrock_state.go:
+- Java name to Bedrock state ID conversion (1229 mappings)
+
+state_to_java.go:
+- Bedrock state ID to Java name conversion (15845 mappings)
+
+=== API LOOKUP METHODS ===
+
+GlobalLookup():
+- ByJava("minecraft:stone") -> block definition
+- ByBedrock("stone") -> block definition  
+- ByBedrockStateID(1798) -> "minecraft:stone" (e.g., 1798)
+- ByBedrockName("ancient_debris") -> &BedrockBlock{...}
+- ByRuntimeID(1) -> block definition (classic format)
+- ByNemc("some_ne:custom_block") -> NetEase custom block
+- OrByName("minecraft:stone") -> smart lookup (tries all methods)
+
+=== DATA SOURCES ===
+- Bedrock 1.26 states: prismarinejs/minecraft-data 1.26.0/blocks.json
+- Classic RuntimeID: Sponge Schematic old ID mapping
+- NetEase custom blocks: NetEase 3.9.x resource packs
+- Block properties: Minecraft Wiki
+
+=== JAVA <-> BEDROCK MAPPING ===
+Example:
+- Java: minecraft:stone -> Bedrock: stone (short name)
+- Java: minecraft:netherite_block -> Bedrock state ID: 6158
+- Bedrock state ID 11216 -> Java: minecraft:ancient_debris
+
+=== USAGE EXAMPLE ===
+import "github.com/Verify144/BlockMap"
+
+blockmap.JavaToBedrock("minecraft:stone") // -> "stone"
+blockmap.JavaToBedrockStateID("minecraft:netherite_block") // -> 6158, true
+blockmap.ByBedrockStateID(11216) // -> "minecraft:ancient_debris", true
+blockmap.ByBedrockName("ancient_debris") // -> &BedrockBlock{...}
+
+=== RELATION TO OTHER MODULES ===
+- Used by icepoint-importer for block placement (Java -> Bedrock state mapping)
+- Used by IceStructure for building format conversion
+- Used by glacier-winter NBT for block state encoding
