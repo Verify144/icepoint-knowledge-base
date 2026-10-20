@@ -1,0 +1,135 @@
+=== VERIFY-NEW NETEASE LOGIN VERIFICATION SYSTEM ===
+Source: Verify144/verify-new (387 files, 704KB, private)
+Source: Verify144/verify-new-ui (426 files, 784KB, private, with Vue 3 frontend)
+Module: github.com/Verify144/verify-new (go 1.25)
+UI Module: verify-new-ui (go 1.25, Vue 3 + Vite + TypeScript)
+License: MIT
+
+=== OVERVIEW ===
+NetEase Minecraft login verification system supporting X19 and G79 dual protocols.
+Includes account pool, guest auto-registration, proxy pool, stack defense.
+Frontend: Vue 3 + Vite + TypeScript (verify-new-ui), default port 9191
+
+=== FEATURES ===
+1. NetEase login verification (X19 / G79 dual protocol)
+2. Account pool (Cookie pool entry, fbToken random selection, 25min cache, ban auto-switch)
+3. Guest full auto-registration (device creation -> SMS verification -> real-name -> pool entry)
+4. vi prefix auto-rename (detect + rename integration, 6 chars length)
+5. MO SMS verification (NetEase short number auto-parse)
+6. Proxy pool (102 sources, HTTP only, CN priority, 30 min auto-refresh)
+7. 4 server type classification (rental server / lobby / mountain / Tan Lobby)
+8. Stack defense (breaker + retry backoff)
+9. JSON persistence (auto-restore after restart, cookie never leaks)
+10. Web UI + interactive CLI (double-click to start)
+
+=== CORE MODULES ===
+
+Network Engine (engine/):
+- g79client / x19client / PE protocol encapsulation
+
+Account Pool (internal/service/accountpool/):
+- Cookie pool + fbToken + persistence + vi rename
+
+Guest Flow (internal/guestflow/):
+- Device + SMS + real-name + pool entry
+
+Proxy Pool (cmd/api-server/proxypool/):
+- 102 sources, HTTP proxy, CN priority, 30 min refresh
+
+Chain Scenario (internal/service/verifychain/):
+- Login verification chain
+
+Stack Defense (internal/warfare/):
+- Breaker + retry backoff
+
+Web UI (frontend/, only in verify-new-ui):
+- Vue 3 + Vite + TypeScript
+- Account management / fbToken management / guest registration / proxy pool visualization
+- WebSocket real-time notification
+- Responsive design
+
+=== QUICK START ===
+
+Backend:
+export VERIFY_TOKEN=your-master-token
+go run ./cmd/api-server/
+
+Frontend (verify-new-ui):
+cd frontend
+npm install
+npm run dev
+Browser: http://localhost:5173
+
+Production:
+cd frontend
+npm run build
+go build -o verift ./cmd/api-server/
+./verift   # Backend API service
+# Host frontend/dist/ to nginx
+
+=== REPOSITORY STRUCTURE ===
+| Path | Description |
+|------|-------------|
+| cmd/api-server/ | API server entry (verift.exe) |
+| engine/ | NetEase engine (g79/x19/PE protocol) |
+| internal/ | Business services (account pool, guest, proxy, warfare) |
+| frontend/ | Vue 3 + Vite frontend (verify-new-ui only) |
+| docs/ | Documentation |
+| _legacy/ | Old version backup |
+
+=== REPO COMPARISON ===
+verify-new (no frontend): Pure backend, minimal deployment
+verify-new-ui (this repo): Backend + frontend, full Web UI
+
+=== VERSION ===
+v1.3.0 (verify merge version)
+Protocol: HTTP / WebSocket
+Port: 9191 (default)
+
+=== SECURITY DESIGN ===
+- Cookies persisted server-side only, NEVER in API output
+- Master token via environment VERIFY_TOKEN
+- TLS skipped (NetEase PE endpoints use self-signed certs)
+- Circuit breaker prevents NetEase anti-cheat ban
+- fbToken random selection prevents single account abuse
+
+=== DATA FILES ===
+data/accountpool.json  # Account pool (contains token, cookie not exposed)
+data/proxy.json        # Proxy pool
+data/guestflow.json    # Guest flow status
+data/server.log        # Server log
+
+=== API ENDPOINTS ===
+
+Account Pool:
+GET /api/pool/stats       Pool statistics
+GET /api/pool/accounts    List accounts (cookie hidden)
+POST /api/pool/accounts   Add account
+DELETE /api/pool/accounts/:id Delete account
+PUT /api/pool/accounts/:id/toggle Enable/disable
+
+fbToken (server entry credential):
+POST /api/pool/tokens       Create token
+GET /api/pool/tokens        List tokens
+DELETE /api/pool/tokens/:id Delete
+POST /api/pool/tokens/:id/connect Server entry verification (core)
+
+Guest Registration:
+POST /api/mpay/guest       Create guest
+POST /api/mpay/guest/batch Batch guest creation
+
+Proxy Pool:
+GET /api/proxy/pool       List proxies
+POST /api/proxy/fetch     Manual fetch
+GET /api/proxy/stats      Statistics
+
+System:
+GET /health               Health check
+POST /api/admin/reload    Hot reload
+POST /api/admin/restart   Restart process
+
+=== RELATION TO ECOSYSTEM ===
+- Uses icepointg79 for G79 protocol
+- Uses verify-new-ui (same codebase) for frontend
+- Supports eternal-sunset building importer authentication
+- Proxy pool shared with other Verify144 tools
