@@ -1,0 +1,228 @@
+=== ICEPOINT COFFEE (AI BUILDING ASSISTANT) ===
+Source: Verify144/IcePointCoffee (public)
+Go module: Not specified (Go 1.21+)
+License: MIT
+Features: Self-written protocol stack (100% original)
+
+=== OVERVIEW ===
+AI Building Assistant with:
+- Self-written protocol stack (100% original code)
+- AI building assistant (multi-turn memory, tool calling, 7 built-in generators)
+- Web Dashboard (real-time monitoring, SSE, command panel)
+- Performance: 109ns-852ns/op, 300M ops/sec, 0 GC pressure
+
+=== PROTOCOL STACK (100% ORIGINAL) ===
+
+RakNet:
+- Frame encapsulation
+- Reliability layer
+- Flow control
+- Packet coalescing / fragmentation
+
+FB Authentication:
+- Facebook Auth login flow complete implementation
+
+ECDH Encryption:
+- X25519 + P-384 + HKDF + AES-256-CTR
+- Key derivation: HKDF-SHA256
+
+MC Protocol (50+ packets):
+- Login
+- Text
+- Command
+- Move
+- Inventory
+- Container
+- BossBar
+- Skin
+- etc.
+
+=== AI BUILDING ASSISTANT ===
+
+Multi-turn Memory:
+- 50 message context window
+- Conversation history maintained
+
+Tool Calling Framework:
+- OpenAI-compatible format
+- Function definitions + execution
+
+Built-in 7 Building Generators:
+1. House - generates house structures
+2. Tower - generates tower structures
+3. Circle - generates circular structures
+4. Sphere - generates spherical structures
+5. Wall - generates wall structures
+6. Floor - generates floor structures
+7. Rect - generates rectangular structures
+
+Mock AI Mode:
+- No API key required
+- Built-in test responses
+
+=== WEB DASHBOARD ===
+
+Real-time Status Monitoring:
+- SSE event stream
+- Connection state
+- Player status
+- Building progress
+
+AI Chat Interface:
+- Markdown rendering
+- Tool call visualization
+- Multi-turn conversation
+
+Building Generation Visualization:
+- Real-time preview
+- Coordinate display
+- Progress tracking
+
+Command Execution Panel:
+- Direct command input
+- Output display
+- History
+
+Plugin Management:
+- Plugin list
+- Enable/disable
+- Configuration
+
+Tool Search:
+- Fuzzy search
+- Category filter
+- Usage examples
+
+Keyboard Shortcuts:
+- 1-8: Switch tabs
+- Enter: Send AI message
+- Shift+Enter: New line
+- Ctrl+R: Refresh
+- Ctrl+K: Clear chat
+
+=== PERFORMANCE ===
+- Protocol encoding: 109ns - 852ns per packet
+- Concurrent write: 300M ops/sec
+- Building generation: 100K - 300K structures/sec
+- All pooled operations: 0 GC allocation
+- Protocol: 33M packets/sec
+
+=== QUICK START ===
+
+Binary:
+chmod +x icepoint
+./icepoint --help
+
+Source:
+git clone https://github.com/Verify144/IcePointCoffee.git
+cd IcePointCoffee
+go build -o icepoint .
+
+=== CONFIGURATION ===
+~/.icepoint/config.yaml:
+
+# AI config (optional, defaults to Mock AI)
+ai:
+  base_url: "https://api.openai.com/v1"
+  api_key: "your-api-key-here"
+  model: "gpt-3.5-turbo"
+
+# Server config
+server:
+  address: "your-server-code"
+  fb_token: "your-fb-token"
+  player_name: "IcePoint"
+
+# Database
+db:
+  path: "~/.icepoint/data.db"
+
+# Plugin config
+plugin:
+  dir: "./plugins"
+  http_port: 8080  # Dashboard port (0 = disabled)
+
+=== OUTPUT EXAMPLE ===
+    ░█▀▀░█░█░█▀▀░░░█░░░█▀▀░█▀▄░█▄█░█▀█░█▀▄░░░█▀▀░█▀▀░█▀▄░█▀▀░█▀▄
+    ░█▀▀░█░█░▀▀█░░░█░░░█░░░█▀▄░█░█░█░█░█▀▄░░░█░░░█▀▀░█▀▄░▀▀█░█▀▄
+    ░▀▀▀░▀▀▀░▀▀▀░░░▀░░░▀▀▀░▀░▀░▀░▀░▀░░░▀░░░░░▀▀▀░▀░░░▀░▀░▀░░
+
+冰点咖啡 v1.0.0
+AI: Mock 模式
+Dashboard: http://127.0.0.1:8080/
+❄ >
+
+CLI:
+❄ > build house width:10 height:5
+正在分析需求...
+任务 ID: task_1234567890
+结果: 建造一个 10x10 的橡木房子
+状态: completed
+
+HTTP API:
+GET /health
+POST /api/ai/chat
+
+=== MC PACKET ID REFERENCE ===
+| ID | Packet | Description |
+|----|--------|-------------|
+| 0x81 | Login | Login |
+| 0x82 | PlayStatus | Play status |
+| 0x83 | ServerToClientHandshake | Handshake |
+| 0x84 | Text | Text message |
+| 0x85 | SetTime | Time set |
+| 0x86 | AddEntity | Add entity |
+| 0x87 | RemoveEntity | Remove entity |
+| 0x88 | AddItemEntity | Add item entity |
+| 0x89 | TakeItemEntity | Take item |
+| 0x8A | MoveEntityAbsolute | Absolute move |
+| 0x8B | MoveEntityDelta | Delta move |
+| 0x8C | MovePlayer | Player move |
+| 0x8D | PlayerAuthInput | Auth input |
+| 0x8E | BlockEvent | Block event |
+| 0x8F | BlockPickRequest | Block pick |
+| 0x90 | ContainerOpen | Open container |
+| 0x91 | ContainerClose | Close container |
+| 0x92 | InventoryTransaction | Item interaction |
+| 0x93 | InventoryContent | Inventory content |
+| 0x94 | PlayerEquipment | Equipment |
+| 0x95 | MobEquipment | Mob equipment |
+| 0x96 | CommandRequest | Command |
+| 0x97 | CommandBlockUpdate | Cmd block update |
+| 0x98 | CommandOutput | Command output |
+| 0x99 | UpdateTrade | Trade |
+| 0x9A | UpdateAttributes | Attributes |
+| 0x9B | MobEffect | Effect |
+| 0x9C | RemoveMobEffect | Remove effect |
+| 0x9D | SetHealth | Health |
+| 0x9E | SetDisplayObjective | Display obj |
+| 0x9F | SetScore | Score |
+| 0xA0 | LevelSoundEvent | Sound |
+| 0xA1 | LevelSoundEventV2 | Sound v2 |
+| 0xA2 | GameRulesChanged | Game rules |
+| 0xA3 | Camera | Camera |
+| 0xA4 | CurrentItem | Current item |
+| 0xA5 | HurtArmor | Hurt armor |
+| 0xA6 | ActorPickRequest | Actor pick |
+| 0xA7 | Animate | Animate |
+| 0xA8 | BlockEntityData | Block entity |
+| 0xA9 | SpawnExperienceOrb | XP orb |
+| 0xAA | ClientboundMapItemData | Map data |
+| 0xAB | MapInfoRequest | Map info |
+| 0xAC | RequestChunkRadius | Chunk radius |
+| 0xAD | ChunkRadiusUpdated | Radius updated |
+| 0xAE | ItemFrameDropItem | Item frame |
+| 0xAF | GameRulesChanged | Game rules |
+| 0xB0 | MoveEntityDelta | Delta move |
+| 0xB1 | SetDifficulty | Difficulty |
+| 0xB2 | SetDefaultGameType | Game type |
+| 0xB3 | SetCommandsEnabled | Commands |
+| 0xB4 | SetPlayerInventoryOptions | Inventory opts |
+| 0xB5 | SetLocalPlayerAsInitialized | Player init |
+
+=== RELATION TO ECOSYSTEM ===
+- Independent project (no direct code dependencies on other Verify144 repos)
+- Demonstrates full protocol stack implementation
+- AI building generators could integrate with eternal-sunset
+- Dashboard UI could serve as template for verify-new-ui
+- Protocol stack is alternative to icepointg79 (different implementation)
