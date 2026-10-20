@@ -1,0 +1,173 @@
+=== ICESTRUCTURE: 37 FORMAT UNIFIED ENTRY ===
+Source: Verify144/IceStructure (72 files, 701KB, private)
+Go module: github.com/Verify144/IceStructure
+Dependencies: brotli (MIT) + glacier-winter (MIT) ONLY
+License: MIT
+
+=== OVERVIEW ===
+Unified building format parser for 37 formats.
+Auto-detects format by magic number.
+Plugin-style Parser interface.
+Unified Structure representation.
+
+=== ARCHITECTURE ===
+icestructure/
+├── Parser interface (Format/Magic/Extensions/Parse)
+├── Structure (unified representation)
+├── Bounds (bounding box)
+├── BlockState (block with properties)
+├── Entity (entities with NBT data)
+├── Convert (format conversion)
+└── Formats/ (37 implementations)
+
+=== STRUCTURE REPRESENTATION ===
+Structure:
+- Format: string (format identifier)
+- Bounds: Bounds {MinX, MinY, MinZ, MaxX, MaxY, MaxZ}
+- Blocks: []BlockState
+- Entities: []Entity
+- Metadata: map[string]interface{}
+
+BlockState:
+- Name: string (block identifier)
+- Properties: map[string]string (block properties)
+- Position: [3]int (X, Y, Z)
+
+Entity:
+- Type: string
+- Position: [3]float64
+- Data: map[string]interface{} (NBT data via glacier-winter)
+
+Bounds:
+- MinX, MinY, MinZ, MaxX, MaxY, MaxZ int32
+
+=== FORMAT LIST (37 FORMATS) ===
+
+OFFICIAL / COMMON (7):
+1. Schematic (Classic MCEdit, gzip, 0x1F8B)
+2. SchemV1 (Schem, version 1)
+3. SchemV2 (Schem, version 2)
+4. Litematic (Litematica, gzip, 0x1F8B)
+5. MCStructure (.mcstructure, Bedrock official, 0x0A)
+6. MCWorld (.mcworld, ZIP-based, 0x504B0304)
+7. BDX (Bedrock compressed, brotli, "BDI@" magic)
+
+NETHERES (3):
+8. KBDX (NetEase KBDX, "KBDX" magic)
+9. BDS (NetEase BDS format)
+10. MCFunction (NetEase MCFunction)
+
+FUHONG 福红 (5):
+11. FuHongV1
+12. FuHongV2
+13. FuHongV3
+14. FuHongV4
+15. FuHongV5 (gzip, 0x1F8B)
+
+GANGBAN 钢板 (7):
+16. GangBanV1 (JSON, '[' magic)
+17. GangBanV2 (JSON, '{' magic)
+18. GangBanV3
+19. GangBanV4
+20. GangBanV5
+21. GangBanV6
+22. GangBanV7
+
+MIANYANG 绵阳 (4):
+23. MianYangV1 (JSON)
+24. MianYangV2
+25. MianYangV3
+26. MianYangV4
+
+PROFESSIONAL / THIRD-PARTY (11):
+27. RunAway (JSON)
+28. QingXuV1
+29. TimeBuilder
+30. AxiomBP
+31. IBImport
+32. Construction
+33. SIBI (magic "H4S")
+34. BCF (magic "BCF")
+35. TIBI
+36. CovStructure
+37. NexusNP
+
+=== MAGIC NUMBER IDENTIFICATION ===
+| Magic (hex/ascii) | Format |
+|-------------------|--------|
+| 0x1F 0x8B | gzip family: Schematic/SchemV1/SchemV2/Litematic/FuHongV5 |
+| 0x50 0x4B 0x03 0x04 | MCWorld (ZIP) |
+| 'B' 'D' 'I' '@' (0x42444940) | BDX (brotli compressed) |
+| 'K' 'B' 'D' 'X' (0x4B424458) | KBDX |
+| 'B' 'C' 'F' (0x424346) | BCF |
+| 'H' '4' 'S' (0x483453) | SIBI |
+| 0x0A | MCStructure (newline prefix) |
+| '[' | FuHongV1/GangBan/RunAway (JSON array) |
+| '{' | FuHongV2-V4/Construction/CovStructure (JSON object) |
+
+=== PARSER INTERFACE ===
+interface Parser {
+    Format() string       // e.g., "Schematic", "Litematic"
+    Magic() []byte        // detection magic bytes
+    Extensions() []string // file extensions (e.g., [".schematic", ".litematic"])
+    Parse(data []byte) (*Structure, error)
+}
+
+=== AUTO-DETECTION ===
+ParseFile(data []byte) (*Structure, error):
+1. Check magic bytes against all registered parsers
+2. If unique match: call that parser's Parse()
+3. If ambiguous: error (caller must specify format)
+4. If no match: error (unknown format)
+
+ParseByFormat(format string, data []byte):
+- Directly calls specific parser
+
+=== CONVERSION ===
+Convert(source *Structure, targetFormat string) ([]byte, error):
+1. Load source into Structure (unified)
+2. Call target format's encoder
+3. Returns encoded data in target format
+
+=== BLOCK NAME COVERAGE ===
+Java 1.12 legacy formats (Schematic/Litematic):
+- 228 classic IDs -> schematicIDMap
+
+Bedrock 1.21 full coverage:
+- 14160 state IDs -> BlockMap.BedrockStateToJava
+
+MCStructure:
+- Block names directly from block_palette
+
+=== DEPENDENCIES ===
+- brotli: github.com/andybalholm/brotli (MIT) - for BDX compression/decompression
+- glacier-winter: github.com/Verify144/glacier-winter (MIT) - NBT handling
+
+=== TESTING ===
+go test -v ./...
+15 tests, all pass
+
+=== USAGE EXAMPLE ===
+import "github.com/Verify144/IceStructure"
+
+func main() {
+    data := readFile("building.litematic")
+    
+    // Auto-detect
+    s, err := icestructure.ParseFile(data)
+    if err != nil { panic(err) }
+    fmt.Printf("Format: %s, Blocks: %d\n", s.Format, s.Metadata["BlockCount"])
+    
+    // Specify format
+    s, err = icestructure.ParseByFormat(icestructure.FormatBDX, data)
+    
+    // Convert
+    out, err := icestructure.Convert(s, icestructure.FormatSchematic)
+}
+
+=== RELATION TO ECOSYSTEM ===
+- Uses BlockMap for Java<->Bedrock block mapping
+- Uses glacier-winter for NBT decoding/encoding (4 dialects)
+- Used by icepoint-importer (parser bridge)
+- Used by eternal-sunset (target application)
+- Independent of glacier (command engine) and icepointg79 (auth)
