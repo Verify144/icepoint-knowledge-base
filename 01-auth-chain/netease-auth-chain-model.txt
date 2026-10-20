@@ -1,0 +1,113 @@
+=== 网易认证链模型（完整版） ===
+基于 icepointg79/chain.go、authv2.go、crypto.go、transport.go、session.go、heartbeat.go 以及 verify-new 完整源码，整理出以下 8 层认证模型：
+
+1. 身份生成 (Identity Generation)
+- 默认：ecdsa.GenerateKey(elliptic.P384(), rand.Reader) → P-384 密钥对
+- 环境变量 G79_IDKEY=rsa 时：rsa.GenerateKey(rand.Reader, 1024) → RSA 1024 位
+- 输出：Identity{priv: *ecdsa.PrivateKey} 或 Identity{priv: *rsa.PrivateKey}
+
+2. 公钥编码 (PublicKeyBase64)
+- x509.MarshalPKIXPublicKey(i.Public()) → DER 编码
+- base64.StdEncoding.EncodeToString(der) → Base64 编码的公钥字符串
+
+3. 身份链构建 (BuildChain)
+- 输入：displayName, identity, xuid (可选), serverToken (可选)
+- 构造 JWT 载荷：
+  {
+    "exp": now + 200年,
+    "iat": now,
+    "nbf": now,
+    "extraData": {
+      "displayName": <玩家名>,
+      "identity": <UUID>,
+      "titleId": "892cb398-59d1-4f49-8cfb-0e2ea4d8d8a4",  // 固定 Bedrock 标题 ID
+      "XUID": <可选>,
+      "ServerToken": <可选>
+    },
+    "identityPublicKey": <Base64 公钥>
+  }
+- 构造 JWT 头部：
+  {
+    "alg": "ES384" 或 "RS384" (根据密钥类型自动判断),
+    "x5u": <Base64 公钥>,
+    "typ": "JWT"
+  }
+- 签名：
+  - ES384：ecdsa.Sign(rand.Reader, key, sha512.Sum384(data)[:]) 
+  - RS384：rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA384, sha512.Sum384(data)[:])
+- 输出：[]string{<JWT 字符串>}（单元素数组）
+
+2. 服务端认证链 (Server-Side Auth Chain)
+- 请求：POST /authentication-v2
+- 头部：Authorization: Bearer <自签 JWT>, Content-Type: application/json
+- 请求体：身份链数据
+- 返回：网易签名认证链（与自签链类似但由网易官方私钥签名）
+
+3. 动态令牌 (Dynamic Token)
+- 构造：md5(userToken) + body + "0eGsBkhl" + path
+- 用途：每次请求附带动态签名，防止重放攻击
+
+4. 加密传输 (Encryption Transport)
+- 密钥协商：ECDH (P-384) + serverPub → 共享密钥
+- 密钥派生：共享密钥 → SHA256(salt || shared) → AES-256-CTR 密钥
+- 数据包处理：enc.Encrypt + 8 字节校验数据 → 解密 -> dec.Decrypt + dec.Verify
+
+5. 协议帧 (Protocol Frame)
+- 批处理帧 (Batch Frame)：支持多包批量发送/接收，支持 zlib 压缩
+- 数据包编解码：encodeLoginPacket / decodeBatch / decodeRawPacket
+
+6. 网络传输 (Transport Layer)
+- RakNet 协议版本 8
+- Dial → Login → Handshake → EnableEncryption → Heartbeat (5 秒)
+- 数据包类型：PyRpc, NetworkStackLatency, LoginPacket, TextPacket, CommandRequestPacket, SubChunkPacket, CommandOutputPacket, MovePlayerPacket
+
+7. 验证系统 (Verification System)
+- 账号池：Cookie 入池 + fbToken 随机选号 + 25 分钟缓存 + 封禁自动切换
+- 游客流水线：设备创建 → 短信验证 → 实名认证 → 入池
+- 代理池：102 个源，HTTP 仅，CN 优先，30 分钟刷新
+- 弹栈防御：熔断器 + 指数退避 + 断点续传
+
+8. 完整认证链流程：
+1. GenerateIdentity → Identity (P-384 密钥对)
+2. BuildChain() → 自签 JWT (含 displayName, identity, titleId, XUID, ServerToken, identityPublicKey)
+3. POST /authentication-v2 → 服务端验证 → 返回签名认证链
+4. Dial(serverAddress) → 建立 RakNet 连接 (协议 8)
+5. 发送登录包 (encodeLoginPacket) → 包含身份链签名
+6. Handshake → 握手协商
+7. EnableEncryption() → ECDH 协商 → AES-256-CTR 设置
+8. Heartbeat (5 秒) → 维持连接
+9. 动态令牌 (GenerateDynamicToken) → 附加到请求头
+10. 账号池 (AccountPool) → Cookie 入池 + fbToken 选择 + 25 分钟缓存 + 封禁切换
+11. 游客流水线 (Guest Flow) → 设备创建 → 短信验证 → 实名认证 → 入池
+12. 代理池 (ProxyPool) → 102 源 HTTP 代理 + CN 优先 + 30 分钟刷新
+13. 弹栈防御 (Warfare) → 熔断器 + 指数退避 + 自动重连 + 断点续传
+
+关键安全特性：
+1. 自签链 (Self-Signed Chain): P-384/ES384 签名，200 年有效期，包含完整身份信息
+2. 服务端验证 (Server Verification): /authentication-v2 换取网易官方签名链
+3. 动态令牌 (Dynamic Token): 每次请求独立签名，防重放
+4. ECDH 加密 (ECDH Encryption): P-384 曲线协商，AES-256-CTR 对称加密，8 字节完整性校验
+5. 协议版本锁定 (Protocol Lock): 固定协议版本 8（非上游 11）
+6. 批处理帧 (Batch Frame): 高效批量传输 + zlib 压缩
+7. 心跳维持 (Heartbeat Maintenance): 5 秒间隔
+8. 弹栈防御 (Anti-Stack Defense): 熔断器 + 重试退避 + 断点续传
+
+技术栈总结：
+- 身份：P-384 ECDSA / RSA 1024（可选）
+- 签名：ES384 / RS384（SHA-512 基础）
+- 认证：JWT（自签 + 服务端验证）
+- 动态令牌：md5 混合 + 固定魔数
+- 传输：RakNet UDP（协议 8）
+- 加密：ECDH（P-384）→ AES-256-CTR
+- 完整性：8 字节校验数据
+- 批处理：Batch Frame + zlib 压缩
+- 心跳：5 秒间隔
+- 验证：Cookie 池 + fbToken 随机选择 + 代理池（102 源）+ 弹栈防御（熔断器 + 重试退避）
+
+与冰点生态模块关系：
+- glacier：命令流引擎（滑动窗口 + 异步回执），复用于认证链的命令发送阶段
+- glacier-winter：NBT 四方言库，复用于认证数据的序列化/反序列化
+- IceStructure：37 种建筑格式解析，不直接用于认证链但可用于建筑数据的 NBT 处理
+- verify-new：完整验证系统（账号池 + 游客注册 + 代理池 + 弹栈防御），直接复用
+- icepoint-minecraft-kernel：自动更新引擎，可用于认证链相关组件的热更新
+- eternal-sunset（落日永恒）：顶层应用，依赖全部认证链模块（glacier + icepointg79 + IceStructure + glacier-winter + brotli）
