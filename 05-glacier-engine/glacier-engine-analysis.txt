@@ -1,0 +1,147 @@
+=== GLACIER COMMAND ENGINE ===
+Source: Verify144/glacier (9 files, 35KB, private)
+Go module: github.com/Verify144/glacier (go 1.24)
+Files: engine.go, config.go, ratelimit.go, transport.go, scheduler.go (inferred)
+
+=== OVERVIEW ===
+Sliding window command flow engine for NetEase Minecraft rental server toolchain.
+Decoupled from MC semantics: only handles command delivery, upper layers translate builds to commands.
+
+Replaces old icepoint-importer batch approach:
+- Old: cmdBatchSize = 256 -> every 256 commands insert sync barrier (SendCommandAndWait "execute run list", 10s)
+- New: Sliding in-flight window + async key-paired acks -> commands always in-flight, no idle waiting
+
+=== CORE TYPES ===
+
+Engine struct:
+- cfg: Config
+- tp: Transport
+- queue: chan queueItem (buffered: QueueSize)
+- retryQ: chan queueItem (buffered: MaxInFlight)
+- sem: chan struct{} (MaxInFlight semaphore)
+- ackC: chan ackMsg (buffered: QueueSize)
+- inflight: map[string]*pending (keyed by command key)
+- closed: chan struct{}
+- resumeC: chan struct{} (for suspend/resume)
+- suspended: bool
+- since: time.Time (pause start time)
+- latency: []time.Duration (latency tracking)
+- stat: submitted/sent/ackOK/ackFail/expired/retried/dropped/sendErr (atomic counters)
+
+queueItem:
+- cmd: Command
+- attempt: int (send count, 0 = first send)
+
+pending:
+- item: queueItem
+- deadline: time.Time
+- sentAt: time.Time
+
+ackMsg:
+- key: string
+- ok: bool
+
+Config struct:
+- QueueSize: int (default 1024)
+- MaxInFlight: int (default 256)
+- AckTimeout: time.Duration (default 5s)
+- MaxRetries: int (default 3)
+- SendTimeout: time.Duration (default 3s)
+- RetryBackoff: time.Duration (default 1s)
+- CmdsPerSec: float64 (0 = unlimited)
+- Logger: Logger interface
+- Now: func() time.Time (for testing)
+
+Transport interface:
+- SendCommandAndWait(cmd Command) error
+- SendCommand(cmd Command) error
+- ReadResponse() (string, error)
+
+Command interface:
+- Key() string
+- Encode() []byte
+
+=== ENGINE LIFECYCLE ===
+
+New(tp, cfg):
+- cfg.withDefaults()
+- Creates engine with channels and maps
+- Starts 3 goroutines:
+  1. sendLoop(): dequeues from queue/retryQ, sends via transport, tracks in-flight
+  2. ackLoop(): reads from ackC, pairs by key, handles retry/ack
+  3. janitor(): periodically checks for expired in-flight commands, retries or drops
+
+Submit(ctx, cmds...):
+- Blocks if queue full (backpressure)
+- Increments submitted, outstand
+- Sends queueItem{cmd, attempt:0} to queue
+
+Ack(key, ok):
+- Called by reader goroutine after parsing response
+- Unknown key silently ignored (race condition: may be already retried)
+- Returns bool (true if delivered to ackC)
+
+Suspend():
+- Freezes sending + timeout judgment
+- Queued commands preserved
+- In-flight command deadlines extended on Resume()
+
+Resume():
+- Extends in-flight deadlines by pause duration
+- Signals resumeC
+
+=== SEND LOOP ===
+- Waits for semaphore (MaxInFlight)
+- If suspended: waits for resume
+- Sends command via transport
+- Tracks in pending map with deadline = Now() + AckTimeout
+- Increments sent counter
+- On send error: increments sendErr, re-queues to retryQ
+
+=== ACK LOOP ===
+- Reads ackMsg from ackC
+- If key in inflight:
+  - If ok: ackOK++, remove from inflight, release semaphore
+  - Else: handle retry logic
+- Invariant: ackOK + dropped == submitted
+
+=== JANITOR (cleanup) ===
+- Periodically (every AckTimeout/2)
+- For each in-flight:
+  - If suspended: skip (deadlines already extended)
+  - If deadline passed: expired++, retry or drop
+  - If attempt < MaxRetries: re-queue to retryQ (attempt++)
+  - Else: dropped++, call OnFailure if set, release semaphore
+
+=== RATE LIMITER ===
+- Token bucket: CmdsPerSec tokens per second
+- Take(n): blocks until n tokens available
+- 0 = unlimited
+
+=== SUSPEND/RESUME INVARIANT ===
+When suspended:
+- sendLoop pauses at semaphore wait
+- janitor skips deadline checks
+- in-flight deadlines frozen
+
+On Resume():
+- All in-flight deadlines += pause duration
+- sendLoop unblocks via resumeC
+
+=== METRICS ===
+- submitted: total commands submitted
+- sent: commands actually sent
+- ackOK: successfully acknowledged
+- ackFail: explicitly rejected
+- expired: timed out
+- retried: re-sent
+- dropped: max retries exhausted
+- sendErr: transport send errors
+
+Invariant: ackOK + dropped == submitted (conservation law)
+
+=== RELATION TO ICEPOINT ECOSYSTEM ===
+- Used by eternal-sunset / icepoint-importer for command delivery
+- Decouples command scheduling from MC protocol logic
+- Glacier handles "send and track ack", upper layer handles "what command to send"
+- IceStructure provides building data -> translates to commands -> glacier delivers
