@@ -1,0 +1,146 @@
+=== ICEPOINT IMPORTER / ETERNAL SUNSET ===
+=== Building Importer Source Analysis ===
+From: Verify144/icepoint-importer (41 files, 68KB, active commits 2026-09-19)
+From: Verify144/eternal-sunset (README: scaffold stage, go.mod: depends on glacier + icepointg79 + IceStructure + glacier-winter + brotli)
+
+=== CURRENT STATE (scaffold / skeleton) ===
+Status: Project skeleton phase
+README: "# 落日永恒 / Eternal Sunset" (description: 待补充 / to be completed)
+Development: Not yet started (技术栈与目录结构未确定)
+
+=== PROJECT ARCHITECTURE ===
+Module: github.com/Verify144/eternal-sunset (go 1.24.4)
+Dependencies (from go.mod):
+- github.com/Verify144/glacier v0.0.0-00010101000000-000000000000 (command flow engine)
+- github.com/Verify144/icepointg79 v0.0.0 (g79 client protocol)
+- github.com/Verify144/IceStructure v0.0.0 (building format parser)
+- github.com/Verify144/icepoint-minecraft-kernel v0.0.0 (auto-update engine)
+- github.com/Verify144/glacier-winter v0.0.0 (NBT library)
+- github.com/andybalholm/brotli v1.1.1 (compression library)
+- github.com/ugorji/go/codec v1.3.0 (serialization)
+- github.com/sandertv/go-raknet v1.15.1 (indirect, protocol 11 -> replaced with protocol 8 fix)
+
+Local replacements (dev mode):
+- glacier => ../glacier
+- icepointg79 => ../icepointg79
+- IceStructure => ../VerifyIceStructure (note: actual path may be ../IceStructure per README)
+- icepoint-minecraft-kernel => ../icepoint-minecraft-kernel
+- glacier-winter => ../glacier-winter
+- brotli => ../brotli
+- sandertv/go-raknet => ../icepointg79/raknet-fixed (protocol 8 patch)
+
+=== IMPORTER CORE FILES ===
+
+cmd/iceimporter/main.go: Entry point (not yet read, file may not exist in master branch)
+
+go.mod: Defines module dependencies (see above)
+
+internal/config/config.go:
+- Config structure: session/account info, rental server, drop position, rate limit, verification level
+- Load(path) / Save(cfg, path): JSON persistence with encrypt/decrypt
+- Default() returns default configuration
+
+internal/auth/fangcun/fangcun.go:
+- Fangcun communication client
+- Start(ctx, name): Start authentication
+- Confirm(ctx, taskID): Confirm SMS verification
+- AcquireCookie(ctx, name): Get cookie after verification
+- SMS flow: waiting_sms -> send SMS -> press enter -> confirm
+
+internal/builder/builder.go (9240 bytes):
+- Engine: runs building process with bot (icepointg79 bot), building data, config
+- Run(ctx): Main execution loop
+  1. Wait for OP (execute run list detection)
+  2. Set gamemode 1 (creative mode)
+  3. TP to drop position (execute in overworld run tp)
+  4. Optional pre-clear (fill ... air for bounding box)
+  5. Build chunks in snake (boustrophedon) order
+  6. Build by chunk: setblock commands for normal blocks
+  7. Complex NBT blocks: structure save/load transport
+  8. Command blocks: CommandBlockUpdate writing
+  9. SubChunkRequest comparison every N chunks
+  10. Auto-reconnect (max 8) with breakpoint resume
+- Statistics tracked: placedBlocks, skipped (unmapped), autoFixed (similar), fixed (inconsistent), nbtMissing
+- Progress reporting: every 5% bucket
+
+internal/builder/placement.go:
+- Block placement logic
+- Normal blocks: setblock command stream
+- Complex NBT: structure save/load
+- Command blocks: CommandBlockUpdate
+
+internal/builder/plan.go:
+- Building import plan definition
+- Export format definition
+
+internal/builder/export.go:
+- Export functionality
+- Format conversion (not fully implemented)
+
+internal/builder/scheduler.go:
+- Snake chunk scheduling
+- Chunk order generation
+- Tickingarea management (guarantee chunk loading)
+
+internal/parser/parser.go:
+- Parser interface: Parse(data []byte, format string) (*Building, error)
+- Bridge IceStructure (37 formats) to Building representation
+- Building = Bounds + BlockStates + Entities
+
+internal/protocol/codec.go:
+- Packet encoding/decoding
+- CommandRequest / Text / SubChunk / CommandOutput / CommandBlockUpdate
+- Packet IDs aligned with flowers-for-machines table
+
+internal/protocol/ids.go:
+- Packet ID mappings
+- Command IDs, SubChunk IDs, etc.
+
+internal/protocol/command_request.go:
+- Command packet structure (request format)
+
+internal/protocol/command_output.go:
+- Command output packet structure (response format)
+
+internal/protocol/subchunk.go:
+- SubChunk packet definition
+- Chunk verification logic
+
+internal/protocol/nbt.go:
+- NBT handling for command block updates
+- Block state serialization
+
+internal/scanner/scanner.go:
+- Chunk scanner
+- SubChunk comparison (actual vs expected)
+- Returns comparison results
+
+internal/task/task.go:
+- Task types: command, sleep, chat, move, build
+- Configurable scheduling
+- Task execution framework
+
+=== CURRENT STATUS ===
+README: "项目简介待补充" (description to be completed)
+Status: Skeleton phase, not yet started
+No production binary available
+No frontend/dashboard (unlike verify-new-ui which has Vue 3 frontend)
+Only CLI interface planned
+
+=== RELATION TO ICEPOINT ECOSYSTEM ===
+This is the top-level application that uses:
+- glacier (command engine) for sending commands
+- icepointg79 (client) for connecting to rental servers
+- IceStructure (parser) for reading building files
+- glacier-winter (NBT) for block state encoding
+- BlockMap (mapping) for Java <-> Bedrock state IDs
+- icepoint-minecraft-kernel (auto-update) for client updates
+
+=== KEY ARCHITECTURE NOTES ===
+- Uses SnakeChunkOrder for efficient chunk building
+- Uses SubChunkRequest for verification and rebuild
+- Uses structure save/load for complex NBT blocks
+- Uses setblock command stream for normal blocks
+- Uses CommandBlockUpdate for command block text
+- Supports auto-reconnect (8 times max) with breakpoint resume
+- Tracks statistics: placed, skipped, fixed, autoFixed, nbtMissing
