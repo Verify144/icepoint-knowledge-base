@@ -1,0 +1,236 @@
+# g79 待评审补丁（握手时序改动已因 A/B 否证而回退，不在此补丁内）
+# authv2.go: 空链重试（真服两次验证）| engine.go: libHash 拉取加固（真服验证已生效）| session.go: 仅新增两个身份 getter（无行为变化）
+
+--- a/session.go	2026-09-19 17:14:01.000000000 +0800
++++ b/session.go	2026-09-23 22:14:44.286555600 +0800
+@@ -46,7 +46,8 @@
+ 
+ 	readBuf []byte
+ 
+-	entityUniqueID int64
++	entityUniqueID  int64
++	entityRuntimeID uint64
+ 
+ 	xuid string
+ }
+@@ -331,6 +332,7 @@
+ 					return wrapErr("解析 StartGame", err)
+ 				}
+ 				c.entityUniqueID = sg.EntityUniqueID
++				c.entityRuntimeID = sg.EntityRuntimeID
+ 				if err := c.SendPacket(&packet.RequestChunkRadius{ChunkRadius: radius}); err != nil {
+ 					return err
+ 				}
+@@ -816,3 +818,7 @@
+ 	flush()
+ 	return best
+ }
++
++// 对照组保留身份取值方法：它们不是本次实验的变量，探针需要它才能与实验组同构。
++func (c *Connection) EntityUniqueID() int64   { return c.entityUniqueID }
++func (c *Connection) EntityRuntimeID() uint64 { return c.entityRuntimeID }
+--- a/authv2.go	2026-09-19 17:14:01.000000000 +0800
++++ b/authv2.go	2026-09-23 21:35:56.130212100 +0800
+@@ -5,10 +5,12 @@
+ 	"encoding/base64"
+ 	"encoding/hex"
+ 	"encoding/json"
++	"errors"
+ 	"fmt"
+ 	"net/http"
+ 	"strconv"
+ 	"strings"
++	"time"
+ )
+ 
+ type AuthV2Request struct {
+@@ -41,7 +43,58 @@
+ 	}
+ }
+ 
++// retryableError 标记"这次失败可能是瞬时的，值得再试一次"。
++//
++// 存在的原因：网易 AuthV2 会间歇性返回 HTTP 200 + 空对象 {}（身份链为空）。
++// 原先这种情况被当作致命错误直接抛出，于是整个"进服"步骤变成了一次随机成败的调用。
++type retryableError struct{ err error }
++
++func (r retryableError) Error() string { return r.err.Error() }
++func (r retryableError) Unwrap() error { return r.err }
++
++// authV2Attempts 与 authV2Backoff 控制空链重试的节奏。
++// 总耗时上界约 0.7s + 抖动，远小于上层 90s 的上下文预算。
++const authV2Attempts = 4
++
++func authV2Backoff(attempt int) time.Duration {
++	d := 150 * time.Millisecond
++	for i := 1; i < attempt && i < 5; i++ {
++		d *= 2
++	}
++	return d
++}
++
++// RequestAuthV2Chain 获取身份链，对瞬时失败（含空链）做有限次退避重试。
+ func (c *Client) RequestAuthV2Chain(ctx context.Context, serverID string, typ ServerType, clientPubKeyB64 string) ([]string, error) {
++	var lastErr error
++	for attempt := 1; attempt <= authV2Attempts; attempt++ {
++		chain, err := c.authV2Attempt(ctx, serverID, typ, clientPubKeyB64)
++		if err == nil {
++			if attempt > 1 {
++				debugLog("[AuthV2] 第 %d 次尝试成功", attempt)
++			}
++			return chain, nil
++		}
++		var retr retryableError
++		if !errors.As(err, &retr) {
++			return nil, err // 结构性错误，重试不会改变结果
++		}
++		lastErr = err
++		if attempt == authV2Attempts {
++			break
++		}
++		wait := authV2Backoff(attempt)
++		debugLog("[AuthV2] 第 %d 次失败(%v)，%s 后重试", attempt, err, wait)
++		select {
++		case <-time.After(wait):
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		}
++	}
++	return nil, fmt.Errorf("%w: 重试 %d 次仍失败: %v", ErrInvalidChain, authV2Attempts, lastErr)
++}
++
++func (c *Client) authV2Attempt(ctx context.Context, serverID string, typ ServerType, clientPubKeyB64 string) ([]string, error) {
+ 	if c.endpoints.AuthV2 == "" {
+ 		return nil, fmt.Errorf("%w: AuthV2 端点未配置", ErrNotImplemented)
+ 	}
+@@ -84,15 +137,15 @@
+ 
+ 	resp, err := c.http.Do(req)
+ 	if err != nil {
+-		return nil, wrapErr("请求 AuthV2", err)
++		return nil, retryableError{wrapErr("请求 AuthV2", err)}
+ 	}
+ 	defer resp.Body.Close()
+ 	respBody, err := readMaybeGzip(resp)
+ 	if err != nil {
+-		return nil, wrapErr("读取 AuthV2 响应", err)
++		return nil, retryableError{wrapErr("读取 AuthV2 响应", err)}
+ 	}
+ 	if resp.StatusCode != http.StatusOK {
+-		return nil, fmt.Errorf("%w: AuthV2 HTTP %d: %s", ErrLocationFailed, resp.StatusCode, truncate(string(respBody), 200))
++		return nil, retryableError{fmt.Errorf("%w: AuthV2 HTTP %d: %s", ErrLocationFailed, resp.StatusCode, truncate(string(respBody), 200))}
+ 	}
+ 	var out AuthV2Response
+ 	plain, perr := decodeAuthV2Response(respBody)
+@@ -107,7 +160,7 @@
+ 			resp.StatusCode, truncate(string(plain), 500),
+ 			fmt.Sprintf("%s:%s", serverID, AuthV2SIDKind(typ)),
+ 			parseEntityID(c.session.UserID), c.session.DisplayName, G79EngineVersion)
+-		return nil, fmt.Errorf("%w: AuthV2 返回空链", ErrInvalidChain)
++		return nil, retryableError{fmt.Errorf("%w: AuthV2 返回空链", ErrInvalidChain)}
+ 	}
+ 	return out.Chain, nil
+ }
+--- a/engine.go	2026-09-19 17:14:01.000000000 +0800
++++ b/engine.go	2026-09-24 05:36:55.964046600 +0800
+@@ -23,6 +23,10 @@
+ 
+ var g79HTTPClient = &http.Client{Timeout: 120 * time.Second}
+ 
++// apkHTTPClient 专用于 libminecraftpe.so 这类几十 MB 的范围拉取：
++// 120s 在慢链路上不够，会静默使 LibHash 留空、签名算错。
++var apkHTTPClient = &http.Client{Timeout: 15 * time.Minute}
++
+ const (
+ 	g79PackListURL    = "https://g79.update.netease.com/pack_list/production/g79_packlist_2"
+ 	g79PatchListURL   = "https://g79.update.netease.com/patch_list/production/g79_rn_patchlist"
+@@ -212,6 +216,11 @@
+ 
+ func buildAutoUpdateResult(patchVersion string) *AutoUpdateResult {
+ 	c := GetVersionConfig()
++	if c.LibHash == "" {
++		// LibHash 参与 versionMessage，为空意味着签名消息与网易期望不一致。
++		// 后果不会在这里报错，而是表现为游戏服"登录被拒"，所以必须在这里喊出来。
++		fmt.Fprintln(os.Stderr, "WARN: LibHash 为空，签名将基于不含 library hash 的消息；游戏服可能拒绝登录")
++	}
+ 	seed := newUUID()
+ 	versionMessage := fmt.Sprintf("%s%s%s%s%s%s",
+ 		G79EngineVersion, c.LibHash, patchVersion, c.PatchHash, c.SigHash, seed)
+@@ -270,27 +279,59 @@
+ 	if dataStart+comp > total {
+ 		return "", fmt.Errorf("library 数据越界: start=%d size=%d total=%d", dataStart, comp, total)
+ 	}
+-	raw, err := httpGetRange(g79HTTPClient, apkURL, int64(dataStart), int64(dataStart)+int64(comp)-1)
+-	if err != nil {
+-		return "", fmt.Errorf("读取 library 压缩数据失败: %w", err)
+-	}
+ 
++	// libminecraftpe.so 有几十 MB，在慢速链路上整体下载会超过 g79HTTPClient 的 120s，
++	// 于是 libHash 静默留空、签名算错，最后表现为很远的地方的"登录被拒"。
++	// 这里给它一个独立的长超时客户端并重试；同时边下边算哈希，不把整个文件读进内存。
+ 	var content []byte
+-	switch entry.method {
+-	case 0:
+-		content = raw
+-	case 8:
+-		fr := flate.NewReader(bytes.NewReader(raw))
+-		content, err = io.ReadAll(fr)
+-		fr.Close()
+-		if err != nil {
+-			return "", fmt.Errorf("解压 libminecraftpe.so 失败: %w", err)
++	var herr error
++	for try := 1; try <= 3; try++ {
++		if content, herr = hashLibEntry(apkURL, entry, dataStart, comp); herr == nil {
++			return hex.EncodeToString(content), nil
++		}
++		debugLog("[引擎] 读取 library 第 %d 次失败: %v", try, herr)
++		if try < 3 {
++			time.Sleep(time.Duration(try*3) * time.Second)
+ 		}
+-	default:
+-		return "", fmt.Errorf("不支持的压缩方式: %d", entry.method)
+ 	}
+-	hash := md5.Sum(content)
+-	return hex.EncodeToString(hash[:]), nil
++	return "", fmt.Errorf("读取 library 压缩数据失败: %w", herr)
++}
++
++// hashLibEntry 流式取回 library 内容并计算 MD5，返回十六进制字节。
++//
++// 这里的 MD5 是网易协议规定的內容哈希，不是安全签名摘要 —— 换成更强的哈希
++// 会直接算错签名，所以不能"顺手升级"。
++func hashLibEntry(apkURL string, entry cdEntry, dataStart, comp uint64) ([]byte, error) {
++	req, _ := http.NewRequest("GET", apkURL, nil)
++	req.Header.Set("User-Agent", "libhttpclient/1.0.0.0")
++	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", dataStart, dataStart+comp-1))
++
++	resp, e := apkHTTPClient.Do(req)
++	if e != nil {
++		return nil, e
++	}
++	defer resp.Body.Close()
++	if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
++		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
++	}
++
++	var src io.Reader = resp.Body
++	if entry.method == 8 {
++		fr := flate.NewReader(resp.Body)
++		defer fr.Close()
++		src = fr
++	} else if entry.method != 0 {
++		return nil, fmt.Errorf("不支持的压缩方式: %d", entry.method)
++	}
++
++	h := md5.New()
++	n, e := io.Copy(h, src)
++	if e != nil {
++		return nil, e
++	}
++	debugLog("[引擎] library 已读取 %d 字节，method=%d", n, entry.method)
++	sum := h.Sum(nil)
++	return sum, nil
+ }
+ 
+ func findSignEntry(cd []byte) (cdEntry, bool) {
+
