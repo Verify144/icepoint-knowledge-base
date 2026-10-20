@@ -1,0 +1,116 @@
+=== GLACIER-WINTER NBT LIBRARY ===
+Source: Verify144/glacier-winter (19 files, 60KB, private)
+Go module: github.com/Verify144/glacier-winter
+Packages: nbt/, encoding.go, decode.go, encode.go, nbt.go, snbt.go, tree.go
+
+=== OVEROVER ===
+NBT library with four dialects for Minecraft:
+1. BedrockFile: On-disk format (.nbt / .nbt.gz)
+2. BedrockNetwork: Network streaming format (TCP)
+3. JavaFile: Java on-disk format (gzip)
+4. JavaNetwork: Java network streaming format (zlib+varint)
+
+=== DESIGN PHIROPY ===
+Two principles only:
+1. Value model is native Go containers (map[string]any, []any, fixed arrays). NO reflection-based struct mapping.
+   - Reasons: "data from others, fields set in unstable ways"
+   - Reflection structs silently drop "fields not listed" -> cause fatal distortion
+2. Encoding differences modeled as one struct (byte order + varint flag + zigzag flag + root name omission), NOT four immutable constants
+   - New variants should expressable, not require new parser per variant
+
+ALL decodings have triple limits (depth, size, entry count):
+- All entry lengths come from input, no upper limit = remote decides allocation size
+
+=== TAG TYPES (Tag byte) ===
+const TagEnd      = 0
+const TagByte     = 1
+const TagShort    = 2
+const TagInt      = 3
+const TagLong     = 4
+const TagFloat    = 5
+const TagDouble   = 6
+const TagByteArray= 7
+const TagString   = 8
+const TagList     = 9
+const TagCompound = 10
+const TagIntArray = 11
+const TagLongArray= 12
+
+Type Tag byte
+
+=== ENCODING STRUAD (Encoding struct) ===
+Four orthogonal dimensions:
+1. BigEndian: true = fixed values big-endian (Java family)
+2. VarInt: true = string/name length uses unsigned LEB128 (Bedrock family)
+3. ZigZag: true = INT/LONG payload and List/array counts use signed zigzag varint
+   - Bedrock family: VarInt AND ZigZag both true
+   - Name length: UNSIGNED varuint
+   - Integer payload: ZIGZAG varuint
+   - Array count: ZIGZAG varuint
+   - These THREE must be separate dimensions! Missing one dimension can't express real format.
+4. OmitRootName: true = root tag has no name (only Java 1.20.2+ network NBT)
+
+Bedrock files still have root name (varuint length + name string)
+
+=== KEY CONCEPTS ===
+- "varint" is NOT one-dimensional: base network byte order string length = UNSIGNED varuint
+  but integer payload and count = ZIGZAG varuint
+- MUST distinguish these three concepts explicitly
+- Bedrock network: names are varuint, integers are zigzag
+- Java file/network: everything is little-endian fixed or simple types
+
+=== DETRACTING MESSAGES: List element type consistency ===
+- listElemTag(items List) (Tag, error)
+- If empty: returns TagEnd (empty list round-trips, not an error)
+- First item determines element tag type
+- All subsequent items must match first item's tag type
+- Mismatch error: "list item N tag mismatch"
+
+=== TYPE ASSERTIONS (as*) =====
+- asByte(v) (byte, error): int8 or bool
+- asInt16(v) (int16, error): int16 or uint8
+- asInt32(v) (int32, error): int32 or uint16
+- asInt64(v) (int64, error): int64 or int/uint32/uint64 (with uint64 > MaxInt64 check)
+- asFloat32(v) (float32, error): float32
+- asFloat64(v) (float64, error): float64
+- asInt32Slice(v) ([]int32, error): []int32
+- asInt64Slice(v) ([]int64, error): []int64
+
+Implementation details:
+- For mixed lists: asInt16 accepts uint8, asInt32 accepts uint16, etc.
+- For conflicts: ERROR (reject mixed types)
+- No silent truncation
+
+=== UTF-8 Support ===
+- string handling: UTF-8 strings
+- byte[] handling: raw bytes (not Go string charset)
+- Name encoding: UTF-8 with potential encoding selection
+
+=== SNBT (Simple NBT) TEXT FORMATTING ===
+Numbers carry type suffixes:
+- "1b" or "1" (byte)
+- "2s" or "2" (short)
+- "3i" or "3" (int)
+- "4l" or "4" (long)
+- "5f" or "5" (float)
+- "6d" or "6" (double)
+- Empty list: just "" (no closing tag implied)
+
+=== DECOCORATOR ACCEPTED TYPES ===
+- map[string]any : Compound
+- []any : List
+- []byte : ByteArray
+- string : String
+- And all standard NBT types
+
+=== USAGE PATTERN ===
+Decode to native Go containers -> use reflection-free data
+Encode from Go containers -> detect dialect -> write appropriately
+Tree operations (delete, replace, filter) work on native containers
+
+=== SPECIFIC ANNOTATIONS ===
+- "not one-dimensional constants" -> Encoding struct replaces magic constants
+- "entries from input, no limit" -> prevents DoS via huge allocation
+- "first item determines element type" -> validates list homogeneity
+- "zero list is not error" -> empty list round-trips
+- UTF-8 for strings, raw bytes for binary
